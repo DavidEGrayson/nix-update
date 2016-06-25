@@ -301,12 +301,26 @@ public:
     }
 };
 
+class UpdatableExpressionFinder : public ExprDefaultVisitor
+{
+public:
+    std::vector<nix::ExprApp *> appsOfFetchGit;
+
+    using ExprVisitor::visit;
+
+    virtual void visit(nix::ExprApp * app)
+    {
+        appsOfFetchGit.push_back(app);
+    }
+};
+
 int main(int argc, char ** argv)
 {
     return nix::handleExceptions(argv[0], [&]() {
         nix::initNix();
         nix::initGC();
 
+        // TODO: don't hardcode path
         std::string path = "/home/david/nixpkgs/pkgs/development/tools/build-managers/lazy/default.nix";
 
         nix::Strings searchPath;
@@ -332,9 +346,13 @@ int main(int argc, char ** argv)
         std::cout << identifyExprClass(select->e) << std::endl;
 
         std::cout << "traverse" << std::endl;
-        ExprClassIdentifier id;
-        ExprDepthFirstSearch search(&id);
+        UpdatableExpressionFinder finder;
+        ExprDepthFirstSearch search(&finder);
         search.visit(mainExpr);
+        for (nix::ExprApp * a : finder.appsOfFetchGit)
+        {
+            std::cout << *a << std::endl << std::endl;
+        }
         return 0;
     });
 }
