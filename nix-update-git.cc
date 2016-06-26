@@ -6,21 +6,32 @@
 #include <shared.hh>
 #include "expr-helpers.hh"
 
-struct StringInfo
+/** Stores information about a parsed string literal: its ExprString
+ * object and its position in this file.  */
+struct ExprStringAndPos
 {
     const nix::ExprString * expr = nullptr;
+
     nix::Pos pos;
 
     const char * cstr() const
     {
+        if (expr == nullptr) { return ""; }
         return expr->v.string.s;
     }
 };
 
+std::ostream & operator << (std::ostream & str, const ExprStringAndPos & v)
+{
+    str << "string at " << v.pos << ':' << std::endl;
+    str << "  " << v.cstr() << std::endl;
+    return str;
+}
+
 struct FetchGitApp
 {
     const nix::ExprApp * app;
-    StringInfo urlString, revString, hashString;
+    ExprStringAndPos urlString, revString, hashString;
 };
 
 // Checks to see if the given expression is an application of a function
@@ -46,13 +57,13 @@ nix::ExprApp * tryInterpretAsApp(nix::Expr * expr, const std::string & name)
 
 // Checks the given function application for a string attribute with the given name.
 // The attribute value must be a single non-idented literal string.
-// Returns information about the string attribute as a StringInfo object.
+// Returns information about the string attribute as a ExprStringAndPos object.
 // Returns true if successful.
-std::pair<StringInfo, bool> findStringAttr(
+std::pair<ExprStringAndPos, bool> findStringAttr(
     const nix::ExprApp * app,
     const std::string & name)
 {
-    std::pair<StringInfo, bool> result;
+    std::pair<ExprStringAndPos, bool> result;
 
     nix::ExprAttrs * attrs = dynamic_cast<nix::ExprAttrs *>(app->e2);
     if (attrs == nullptr) { return result; }
@@ -67,8 +78,15 @@ std::pair<StringInfo, bool> findStringAttr(
         if (es == nullptr) { continue; }
         if (es->v.type != nix::ValueType::tString) { continue; }
 
+        // nix::ExprString does not know its position.  To get the
+        // position of tee string, we assume that the string starts on
+        // the same line as the attribute definition and there is
+        // exactly one space on each side of the equal sign.
+        nix::Pos pos = symbolAndAttr.second.pos;
+        pos.column += name.length() + 3;
+
         result.first.expr = es;
-        result.first.pos = symbolAndAttr.second.pos;
+        result.first.pos = pos;
         result.second = true;
         return result;
     }
@@ -109,26 +127,28 @@ int main(int argc, char ** argv)
         // TODO: don't hardcode path
         std::string path = "/home/david/nixpkgs/pkgs/development/tools/build-managers/lazy/default.nix";
 
+        // Open the .nix file and parse it.
         nix::Strings searchPath;
         nix::EvalState state(searchPath);
         nix::Expr * mainExpr = state.parseExprFromFile(path);
 
+        // Traverse the parsed representation of the file and gather
+        // information about all calls (applications) of fetchgit.
         std::vector<FetchGitApp> fetchGitApps;
         ExprVisitorFunction finder([&](nix::Expr * e) {
             auto result = tryInterpretAsFetchGitApp(e);
             if (result.second) { fetchGitApps.push_back(result.first); }
             return true;
         });
-        ExprDepthFirstSearch search(&finder);
-        search.visit(mainExpr);
+        ExprDepthFirstSearch(&finder).visit(mainExpr);
+
         for (FetchGitApp & fga : fetchGitApps)
         {
             std::cout << fga.app->pos << std::endl;
             std::cout << *const_cast<nix::ExprApp *>(fga.app) << std::endl;
-            std::cout << fga.urlString.cstr() << std::endl;
-            std::cout << fga.revString.cstr() << std::endl;
-            std::cout << fga.hashString.pos << std::endl;
-            std::cout << fga.hashString.cstr() << std::endl;
+            std::cout << fga.urlString << std::endl;
+            std::cout << fga.revString << std::endl;
+            std::cout << fga.hashString << std::endl;
         }
         return 0;
     });
