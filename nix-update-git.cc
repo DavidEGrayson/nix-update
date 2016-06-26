@@ -55,8 +55,15 @@ std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
 // (Requires internet access.)
 void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state, bool quiet)
 {
+    // Prevent security problems when assembling the shell command below.
+    if (fga.urlString.string().find('\'') != std::string::npos)
+    {
+        throw std::runtime_error("Git repository name has a single quote in it.");
+    }
+
     // Fetch the info from the git repository.
-    std::string cmd = std::string("nix-prefetch-git ") + fga.urlString.string();
+    std::string cmd = "nix-prefetch-git ";
+    cmd += std::string("\'") + fga.urlString.string() + std::string("\'");
     if (quiet) { cmd += " 2>/dev/null"; }
 
     std::string json = runShellCommand(cmd);
