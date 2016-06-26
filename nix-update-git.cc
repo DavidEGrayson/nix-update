@@ -1,10 +1,15 @@
 #include <sstream>
 #include <iostream>
+#include <memory>
+
 #include <nixexpr.hh>
 #include <parser-tab.hh>
 #include <eval.hh>
 #include <shared.hh>
+
 #include "expr-helpers.hh"
+
+// TODO: add support for --deepClone and other options to fetchGit/nix-prefetch-git
 
 /** Stores information about a parsed string literal: its ExprString
  * object and its position in this file.  */
@@ -14,7 +19,7 @@ struct ExprStringAndPos
 
     nix::Pos pos;
 
-    const char * cstr() const
+    const char * c_str() const
     {
         if (expr == nullptr) { return ""; }
         return expr->v.string.s;
@@ -24,7 +29,7 @@ struct ExprStringAndPos
 std::ostream & operator << (std::ostream & str, const ExprStringAndPos & v)
 {
     str << "string at " << v.pos << ':' << std::endl;
-    str << "  " << v.cstr() << std::endl;
+    str << "  " << v.c_str() << std::endl;
     return str;
 }
 
@@ -32,6 +37,9 @@ struct FetchGitApp
 {
     const nix::ExprApp * app;
     ExprStringAndPos urlString, revString, hashString;
+    std::string newRev;
+    std::string newHash;
+
 };
 
 // Checks to see if the given expression is an application of a function
@@ -118,6 +126,69 @@ std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
     return result;
 }
 
+typedef std::unique_ptr<FILE, int (*)(FILE *)> UniquePtrPipe;
+
+/** Runs a shell command using popen.  The command's standard output is
+ * returned, while the standard error goes to the standard error of this
+ * process.  Errors are converted into exceptions. */
+std::string runShellCommand(const std::string & cmd)
+{
+    std::string result = "";
+    FILE * fp = popen(cmd.c_str(), "r");
+    if (fp == nullptr)
+    {
+        int ev = errno;
+        std::string what = std::string("Failed to start command: ") + cmd;
+        throw std::system_error(ev, std::system_category(), what);
+    }
+
+    while (1)
+    {
+        if (feof(fp)) { break; }
+
+        if (ferror(fp))
+        {
+            pclose(fp);
+            std::string what = "Failed to read from pipe";
+            throw std::runtime_error(what);
+        }
+
+        char buffer[128];
+        if (fgets(buffer, sizeof(buffer), fp) != nullptr)
+        {
+            result += buffer;
+        }
+    }
+
+    int ret = pclose(fp);
+    if (ret == -1)
+    {
+        int ev = errno;
+        std::string what = "pclose failed";
+        throw std::system_error(ev, std::system_category(), what);
+    }
+    else if (ret != 0)
+    {
+        std::string what = std::string("Command `") + cmd + "` failed";
+        if (WEXITSTATUS(ret))
+        {
+            what += " with error code " + std::to_string(WEXITSTATUS(ret));
+        }
+        throw std::runtime_error(what);
+    }
+
+    return result;
+}
+
+// Use nix-prefetch-git to get updated info about the upstream repository.
+// (Requires internet access.)
+void getLatestGitInfo(FetchGitApp & fga)
+{
+    std::string cmd = std::string("nix-prefetch-git ") + fga.urlString.c_str();
+    std::string json = runShellCommand(cmd);
+    std::cout << json << std::endl;
+}
+
 int main(int argc, char ** argv)
 {
     return nix::handleExceptions(argv[0], [&]() {
@@ -142,13 +213,25 @@ int main(int argc, char ** argv)
         });
         ExprDepthFirstSearch(&finder).visit(mainExpr);
 
+        // Get updated info about the upstream repository.  (Requires internet access.)
         for (FetchGitApp & fga : fetchGitApps)
         {
-            std::cout << fga.app->pos << std::endl;
-            std::cout << *const_cast<nix::ExprApp *>(fga.app) << std::endl;
-            std::cout << fga.urlString << std::endl;
-            std::cout << fga.revString << std::endl;
-            std::cout << fga.hashString << std::endl;
+            getLatestGitInfo(fga);
+        }
+
+        // TODO: write the updated info to the file
+
+        // Print debugging info.
+        if (0)
+        {
+            for (FetchGitApp & fga : fetchGitApps)
+            {
+                std::cout << fga.app->pos << std::endl;
+                std::cout << *const_cast<nix::ExprApp *>(fga.app) << std::endl;
+                std::cout << fga.urlString << std::endl;
+                std::cout << fga.revString << std::endl;
+                std::cout << fga.hashString << std::endl;
+            }
         }
         return 0;
     });
