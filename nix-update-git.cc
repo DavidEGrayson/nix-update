@@ -126,14 +126,11 @@ std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
     return result;
 }
 
-typedef std::unique_ptr<FILE, int (*)(FILE *)> UniquePtrPipe;
-
 /** Runs a shell command using popen.  The command's standard output is
  * returned, while the standard error goes to the standard error of this
  * process.  Errors are converted into exceptions. */
 std::string runShellCommand(const std::string & cmd)
 {
-    std::string result = "";
     FILE * fp = popen(cmd.c_str(), "r");
     if (fp == nullptr)
     {
@@ -142,6 +139,7 @@ std::string runShellCommand(const std::string & cmd)
         throw std::system_error(ev, std::system_category(), what);
     }
 
+    std::string output;
     while (1)
     {
         if (feof(fp)) { break; }
@@ -156,7 +154,7 @@ std::string runShellCommand(const std::string & cmd)
         char buffer[128];
         if (fgets(buffer, sizeof(buffer), fp) != nullptr)
         {
-            result += buffer;
+            output.append(buffer);
         }
     }
 
@@ -177,7 +175,7 @@ std::string runShellCommand(const std::string & cmd)
         throw std::runtime_error(what);
     }
 
-    return result;
+    return output;
 }
 
 // Use nix-prefetch-git to get updated info about the upstream repository.
