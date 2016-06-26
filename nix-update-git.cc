@@ -1,12 +1,16 @@
+// Standard headers
 #include <sstream>
 #include <iostream>
 #include <memory>
 
+// libnixexpr headers
 #include <nixexpr.hh>
 #include <parser-tab.hh>
 #include <eval.hh>
 #include <shared.hh>
+#include <json-to-value.hh>
 
+// headers from this project
 #include "expr-helpers.hh"
 
 // TODO: add support for --deepClone and other options to fetchGit/nix-prefetch-git
@@ -67,7 +71,7 @@ nix::ExprApp * tryInterpretAsApp(nix::Expr * expr, const std::string & name)
 // The attribute value must be a single non-idented literal string.
 // Returns information about the string attribute as a ExprStringAndPos object.
 // Returns true if successful.
-std::pair<ExprStringAndPos, bool> findStringAttr(
+std::pair<ExprStringAndPos, bool> findStringFromApp(
     const nix::ExprApp * app,
     const std::string & name)
 {
@@ -102,6 +106,34 @@ std::pair<ExprStringAndPos, bool> findStringAttr(
     return result;
 }
 
+std::pair<std::string, bool> findStringFromBindings(nix::Bindings & bindings,
+    const std::string & name)
+{
+    std::pair<std::string, bool> result;
+
+    for (size_t i = 0; i < bindings.size(); i++)
+    {
+        nix::Attr & attr = bindings[i];
+
+        // Continue looping if this attribute has the wrong name.
+        if (name != (const std::string &)attr.name) { continue; }
+
+        // Make sure this attribute's value is a string.
+        if (attr.value->type != nix::ValueType::tString)
+        {
+            throw std::runtime_error("expected a string, got something else");
+        }
+
+        result.first = std::string(attr.value->string.s);
+        result.second = true;
+        return result;
+    }
+
+    return result;
+}
+
+
+
 std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
 {
     std::pair<FetchGitApp, bool> result;
@@ -110,15 +142,15 @@ std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
     fga.app = tryInterpretAsApp(expr, "fetchgit");
     if (fga.app == nullptr) { return result; }
 
-    auto strResult = findStringAttr(fga.app, "url");
+    auto strResult = findStringFromApp(fga.app, "url");
     if (!strResult.second) { return result; }
     fga.urlString = strResult.first;
 
-    strResult = findStringAttr(fga.app, "rev");
+    strResult = findStringFromApp(fga.app, "rev");
     if (!strResult.second) { return result; }
     fga.revString = strResult.first;
 
-    strResult = findStringAttr(fga.app, "sha256");
+    strResult = findStringFromApp(fga.app, "sha256");
     if (!strResult.second) { return result; }
     fga.hashString = strResult.first;
 
@@ -180,11 +212,45 @@ std::string runShellCommand(const std::string & cmd)
 
 // Use nix-prefetch-git to get updated info about the upstream repository.
 // (Requires internet access.)
-void getLatestGitInfo(FetchGitApp & fga)
+void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state)
 {
+    // Fetch the info from the git repository.
     std::string cmd = std::string("nix-prefetch-git ") + fga.urlString.c_str();
     std::string json = runShellCommand(cmd);
-    std::cout << json << std::endl;
+
+    // Parse the JSON returned from nix-prefetch-git using nix's JSON parser.
+    nix::Value value;
+    parseJSON(state, json, value);
+    if (value.type != nix::ValueType::tAttrs)
+    {
+        throw std::runtime_error("JSON from nix-prefetch-git is not a hash.");
+    }
+
+    // Make sure the url from the JSON response is what we are expecting.
+    auto result = findStringFromBindings(*value.attrs, "url");
+    if (!result.second)
+    {
+        throw std::runtime_error("JSON from nix-prefetch-git is missing the key 'url'.");
+    }
+    if (result.first != fga.urlString.c_str())
+    {
+        throw std::runtime_error("JSON from nix-prefetch-git has a url that does " \
+            "not match what we expected.");
+    }
+
+    // Get the rev and sha256 values and store them in fga.
+    result = findStringFromBindings(*value.attrs, "rev");
+    if (!result.second)
+    {
+        throw std::runtime_error("JSON from nix-prefetch-git is missing the key 'rev'.");
+    }
+    fga.newRev = result.first;
+    result = findStringFromBindings(*value.attrs, "sha256");
+    if (!result.second)
+    {
+        throw std::runtime_error("JSON from nix-prefetch-git is missing the key 'sha256'.");
+    }
+    fga.newHash = result.first;
 }
 
 int main(int argc, char ** argv)
@@ -214,7 +280,7 @@ int main(int argc, char ** argv)
         // Get updated info about the upstream repository.  (Requires internet access.)
         for (FetchGitApp & fga : fetchGitApps)
         {
-            getLatestGitInfo(fga);
+            getLatestGitInfo(fga, state);
         }
 
         // TODO: write the updated info to the file
@@ -229,6 +295,8 @@ int main(int argc, char ** argv)
                 std::cout << fga.urlString << std::endl;
                 std::cout << fga.revString << std::endl;
                 std::cout << fga.hashString << std::endl;
+                std::cout << fga.newRev << std::endl;
+                std::cout << fga.newHash << std::endl;
             }
         }
         return 0;
