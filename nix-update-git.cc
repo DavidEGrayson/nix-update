@@ -36,10 +36,12 @@ std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
 
 // Use nix-prefetch-git to get updated info about the upstream repository.
 // (Requires internet access.)
-void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state)
+void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state, bool quiet)
 {
     // Fetch the info from the git repository.
     std::string cmd = std::string("nix-prefetch-git ") + fga.urlString.string();
+    if (quiet) { cmd += " 2>/dev/null"; }
+
     std::string json = runShellCommand(cmd);
 
     // Parse the JSON returned from nix-prefetch-git using nix's JSON parser.
@@ -87,7 +89,8 @@ std::vector<StringReplacement> getStringReplacements(const FetchGitApp & app)
 
 int mainWithExceptions(int argc, char ** argv)
 {
-    // TODO: don't hardcode path
+    // TODO: don't hardcode these options
+    bool quiet = false;
     std::string path = "/home/david/nixpkgs/pkgs/development/tools/build-managers/lazy/default.nix";
 
     // Open the .nix file and parse it.
@@ -108,7 +111,7 @@ int mainWithExceptions(int argc, char ** argv)
     // Get updated info about the upstream repository.  (Requires internet access.)
     for (FetchGitApp & fga : fetchGitApps)
     {
-        getLatestGitInfo(fga, state);
+        getLatestGitInfo(fga, state, quiet);
     }
 
     // Get the info about what replacements need to be made in the file.
@@ -124,30 +127,23 @@ int mainWithExceptions(int argc, char ** argv)
         }
     }
 
-    // TODO: write the updated info to the file
+    // Update the .nix file if needed.
+    if (replacements.size() > 0)
+    {
+        performReplacements(path, replacements);
+        if (!quiet)
+        {
+            std::cerr << "Updated: " << path << std::endl;
+        }
+    }
+    else
+    {
+        if (!quiet)
+        {
+            std::cerr << "Already up-to-date: " << path << std::endl;
+        }
+    }
 
-    // Print debugging info.
-    if (0)
-    {
-        for (const FetchGitApp & fga : fetchGitApps)
-        {
-            std::cout << fga.app->pos << std::endl;
-            std::cout << *const_cast<nix::ExprApp *>(fga.app) << std::endl;
-            std::cout << fga.urlString << std::endl;
-            std::cout << fga.revString << std::endl;
-            std::cout << fga.hashString << std::endl;
-            std::cout << fga.newRev << std::endl;
-            std::cout << fga.newHash << std::endl;
-        }
-    }
-    if (1)
-    {
-        for (const StringReplacement & sr : replacements)
-        {
-            std::cout << sr.line << ':' << sr.column << ' ' <<
-                sr.oldString << '!' << sr.newString << std::endl;
-        }
-    }
     return 0;
 }
 

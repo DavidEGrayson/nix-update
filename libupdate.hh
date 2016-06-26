@@ -3,6 +3,7 @@
 #include <nixexpr.hh>
 
 #include <string>
+#include <vector>
 
 struct StringReplacement
 {
@@ -36,8 +37,9 @@ struct ExprStringAndPos
         StringReplacement sr;
         sr.line = pos.line;
         sr.column = pos.column;
-        sr.oldString = string();
-        sr.newString = newString;
+        std::string quote("\"");
+        sr.oldString = quote + string() + quote;
+        sr.newString = quote + newString + quote;
         return sr;
     }
 
@@ -55,3 +57,6 @@ std::pair<std::string, bool> findStringFromBindings(nix::Bindings & bindings,
     const std::string & name);
 
 std::string runShellCommand(const std::string & cmd);
+
+void performReplacements(const std::string & path,
+    const std::vector<StringReplacement> &);

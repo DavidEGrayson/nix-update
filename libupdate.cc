@@ -2,8 +2,11 @@
 
 #include <parser-tab.hh>
 
-#include <system_error>
 #include <stdio.h>
+#include <sstream>
+#include <fstream>
+#include <system_error>
+#include <cassert>
 
 std::ostream & operator << (std::ostream & str, const ExprStringAndPos & v)
 {
@@ -149,3 +152,103 @@ std::string runShellCommand(const std::string & cmd)
 
     return output;
 }
+
+#include <iostream>
+
+// Note: This will add a blank line to the last line.
+// Note: I am not sure what would happen in Windows with \r\n line endings.
+static void performReplacementsCore(
+    const std::vector<StringReplacement> & sortedReplacements,
+    std::istream & input, std::ostream & output)
+{
+    auto ri = sortedReplacements.begin();
+    size_t lineNumber = 0;
+
+    while (1)
+    {
+        // Read a line from the input.
+        lineNumber++;
+        std::string line;
+        std::getline(input, line);
+        if (input.fail())
+        {
+            if (input.eof())
+            {
+                break;
+            }
+            throw std::runtime_error("Failed to read line.");
+        }
+
+        // Apply all the replacements needed on this line.
+        while (ri != sortedReplacements.end() &&
+            ri->line == lineNumber)
+        {
+            // Make sure that the current contents of the line match what we expect.
+            if (line.substr(ri->column - 1, ri->oldString.size()) != ri->oldString)
+            {
+                throw std::runtime_error("File contents mismatch.");
+            }
+
+            // Perform the replacement.
+            line.replace(ri->column - 1, ri->oldString.size(), ri->newString);
+
+            // Advance to the next replacement in the sorted list.
+            ++ri;
+        }
+
+        // Write the modified line to the output.
+        output << line << std::endl;
+        if (output.fail())
+        {
+            throw std::runtime_error("Failed to write line.");
+        }
+    }
+
+    if (ri != sortedReplacements.end())
+    {
+        throw std::runtime_error("File has fewer lines than expected.");
+    }
+}
+
+void performReplacements(const std::string & path,
+    const std::vector<StringReplacement> & replacements)
+{
+    // Sort the replacements by line number.
+    std::vector<StringReplacement> sortedReplacements = replacements;
+    std::sort (sortedReplacements.begin(), sortedReplacements.end(),
+        [](const StringReplacement & a, const StringReplacement & b) {
+            if (a.line == b.line) { return a.column > b.column; }
+            return a.line < b.line;
+    });
+
+    std::string modifiedFile;
+
+    {
+        std::ifstream inputStream(path);
+        if (inputStream.fail())
+        {
+            int ev = errno;
+            std::string what = std::string("Failed to open file for input: ") + path;
+            throw std::system_error(ev, std::system_category(), what);
+        }
+        std::ostringstream stringStream;
+        performReplacementsCore(sortedReplacements, inputStream, stringStream);
+        modifiedFile = stringStream.str();
+    }
+
+    {
+        std::ofstream outputStream(path);
+        if (outputStream.fail())
+        {
+            int ev = errno;
+            std::string what = std::string("Failed to open file for writing: ") + path;
+            throw std::system_error(ev, std::system_category(), what);
+        }
+        outputStream << modifiedFile;
+        if (outputStream.fail())
+        {
+            throw std::runtime_error("Failed to write to file.");
+        }
+    }
+}
+
