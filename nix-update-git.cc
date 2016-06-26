@@ -26,7 +26,28 @@ struct ExprStringAndPos
     const char * c_str() const
     {
         if (expr == nullptr) { return ""; }
+        if (expr->v.type != nix::ValueType::tString) { return ""; }
         return expr->v.string.s;
+    }
+
+    std::string string() const
+    {
+        return c_str();
+    }
+};
+
+struct StringReplacement
+{
+    uint32_t line, column;
+    std::string oldString;
+    std::string newString;
+
+    StringReplacement(const ExprStringAndPos & e, const std::string & newString)
+    {
+        this->line = e.pos.line;
+        this->column = e.pos.column;
+        this->oldString = e.string();
+        this->newString = newString;
     }
 };
 
@@ -132,8 +153,6 @@ std::pair<std::string, bool> findStringFromBindings(nix::Bindings & bindings,
     return result;
 }
 
-
-
 std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
 {
     std::pair<FetchGitApp, bool> result;
@@ -215,7 +234,7 @@ std::string runShellCommand(const std::string & cmd)
 void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state)
 {
     // Fetch the info from the git repository.
-    std::string cmd = std::string("nix-prefetch-git ") + fga.urlString.c_str();
+    std::string cmd = std::string("nix-prefetch-git ") + fga.urlString.string();
     std::string json = runShellCommand(cmd);
 
     // Parse the JSON returned from nix-prefetch-git using nix's JSON parser.
@@ -232,7 +251,7 @@ void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state)
     {
         throw std::runtime_error("JSON from nix-prefetch-git is missing the key 'url'.");
     }
-    if (result.first != fga.urlString.c_str())
+    if (result.first != fga.urlString.string())
     {
         throw std::runtime_error("JSON from nix-prefetch-git has a url that does " \
             "not match what we expected.");
@@ -251,6 +270,14 @@ void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state)
         throw std::runtime_error("JSON from nix-prefetch-git is missing the key 'sha256'.");
     }
     fga.newHash = result.first;
+}
+
+std::vector<StringReplacement> getStringReplacements(const FetchGitApp & app)
+{
+    std::vector<StringReplacement> r;
+    r.push_back(StringReplacement(app.revString, app.newRev));
+    r.push_back(StringReplacement(app.hashString, app.newHash));
+    return r;
 }
 
 int main(int argc, char ** argv)
@@ -283,12 +310,25 @@ int main(int argc, char ** argv)
             getLatestGitInfo(fga, state);
         }
 
+        // Get the info about what replacements need to be made in the file.
+        std::vector<StringReplacement> replacements;
+        for (FetchGitApp & fga : fetchGitApps)
+        {
+            for (const StringReplacement & sr : getStringReplacements(fga))
+            {
+                if (sr.newString != sr.oldString)
+                {
+                    replacements.push_back(sr);
+                }
+            }
+        }
+
         // TODO: write the updated info to the file
 
         // Print debugging info.
         if (0)
         {
-            for (FetchGitApp & fga : fetchGitApps)
+            for (const FetchGitApp & fga : fetchGitApps)
             {
                 std::cout << fga.app->pos << std::endl;
                 std::cout << *const_cast<nix::ExprApp *>(fga.app) << std::endl;
@@ -297,6 +337,14 @@ int main(int argc, char ** argv)
                 std::cout << fga.hashString << std::endl;
                 std::cout << fga.newRev << std::endl;
                 std::cout << fga.newHash << std::endl;
+            }
+        }
+        if (0)
+        {
+            for (const StringReplacement & sr : replacements)
+            {
+                std::cout << sr.line << ':' << sr.column << ' ' << \
+                    sr.oldString << '!' << sr.newString << std::endl;
             }
         }
         return 0;
