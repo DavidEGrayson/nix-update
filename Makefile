@@ -5,7 +5,7 @@ all:
           $(foreach n,$(nativeBuildInputs),-I$n/include/nix) \
 	  $(NIX_CFLAGS_COMPILE) $(foreach f,$(NIX_LDFLAGS),-Wl,$f) \
 	  nix-update-git.cc \
-	  -lnixformat -lnixutil -lnixstore -lnixmain -lnixexpr
+	  -lnixmain -lnixexpr
 
 install:
 	mkdir -p $(DESTDIR)/bin
