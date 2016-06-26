@@ -15,6 +15,13 @@
 
 // TODO: add support for --deepClone and other options to fetchGit/nix-prefetch-git
 
+struct StringReplacement
+{
+    uint32_t line, column;
+    std::string oldString;
+    std::string newString;
+};
+
 /** Stores information about a parsed string literal: its ExprString
  * object and its position in this file.  */
 struct ExprStringAndPos
@@ -34,21 +41,17 @@ struct ExprStringAndPos
     {
         return c_str();
     }
-};
 
-struct StringReplacement
-{
-    uint32_t line, column;
-    std::string oldString;
-    std::string newString;
-
-    StringReplacement(const ExprStringAndPos & e, const std::string & newString)
+    StringReplacement replacement(const std::string & newString) const
     {
-        this->line = e.pos.line;
-        this->column = e.pos.column;
-        this->oldString = e.string();
-        this->newString = newString;
+        StringReplacement sr;
+        sr.line = pos.line;
+        sr.column = pos.column;
+        sr.oldString = string();
+        sr.newString = newString;
+        return sr;
     }
+
 };
 
 std::ostream & operator << (std::ostream & str, const ExprStringAndPos & v)
@@ -275,8 +278,8 @@ void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state)
 std::vector<StringReplacement> getStringReplacements(const FetchGitApp & app)
 {
     std::vector<StringReplacement> r;
-    r.push_back(StringReplacement(app.revString, app.newRev));
-    r.push_back(StringReplacement(app.hashString, app.newHash));
+    r.push_back(app.revString.replacement(app.newRev));
+    r.push_back(app.hashString.replacement(app.newHash));
     return r;
 }
 
