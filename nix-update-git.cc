@@ -58,7 +58,7 @@ void getLatestGitInfo(FetchGitApp & fga, nix::EvalState & state)
     }
     if (result.first != fga.urlString.string())
     {
-        throw std::runtime_error("JSON from nix-prefetch-git has a url that does " \
+        throw std::runtime_error("JSON from nix-prefetch-git has a url that does "
             "not match what we expected.");
     }
 
@@ -87,9 +87,6 @@ std::vector<StringReplacement> getStringReplacements(const FetchGitApp & app)
 
 int mainWithExceptions(int argc, char ** argv)
 {
-    nix::initNix();
-    nix::initGC();
-
     // TODO: don't hardcode path
     std::string path = "/home/david/nixpkgs/pkgs/development/tools/build-managers/lazy/default.nix";
 
@@ -143,11 +140,11 @@ int mainWithExceptions(int argc, char ** argv)
             std::cout << fga.newHash << std::endl;
         }
     }
-    if (0)
+    if (1)
     {
         for (const StringReplacement & sr : replacements)
         {
-            std::cout << sr.line << ':' << sr.column << ' ' <<          \
+            std::cout << sr.line << ':' << sr.column << ' ' <<
                 sr.oldString << '!' << sr.newString << std::endl;
         }
     }
@@ -157,6 +154,8 @@ int mainWithExceptions(int argc, char ** argv)
 int main(int argc, char ** argv)
 {
     return nix::handleExceptions(argv[0], [&]() {
+        nix::initNix();
+        nix::initGC();
         mainWithExceptions(argc, argv);
     });
 }
