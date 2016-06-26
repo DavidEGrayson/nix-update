@@ -1,3 +1,9 @@
+#pragma once
+
+#include <nixexpr.hh>
+
+#include <memory>
+
 class ExprVisitorBase
 {
 public:
