@@ -1,10 +1,10 @@
 DESTDIR ?= /usr/local
 
 all:
-	g++ -Wall --std=c++0x -o update-git \
+	g++ -O3 -Wall --std=c++11 -o nix-update-git \
           $(foreach n,$(nativeBuildInputs),-I$n/include/nix) \
 	  $(NIX_CFLAGS_COMPILE) $(foreach f,$(NIX_LDFLAGS),-Wl,$f) \
-	  $(wildcard *.cc) \
+	  nix-update-git.cc \
 	  -lnixformat -lnixutil -lnixstore -lnixmain -lnixexpr
 
 install:
