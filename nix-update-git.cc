@@ -52,7 +52,7 @@ std::pair<StringInfo, bool> findStringAttr(
     const nix::ExprApp * app,
     const std::string & name)
 {
-    auto result = std::pair<StringInfo, bool>(StringInfo(), false);
+    std::pair<StringInfo, bool> result;
 
     nix::ExprAttrs * attrs = dynamic_cast<nix::ExprAttrs *>(app->e2);
     if (attrs == nullptr) { return result; }
@@ -78,7 +78,7 @@ std::pair<StringInfo, bool> findStringAttr(
 
 std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
 {
-    auto result = std::pair<FetchGitApp, bool>(FetchGitApp(), false);
+    std::pair<FetchGitApp, bool> result;
     FetchGitApp & fga = result.first;
 
     fga.app = tryInterpretAsApp(expr, "fetchgit");
