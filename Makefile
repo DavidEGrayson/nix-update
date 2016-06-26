@@ -1,11 +1,16 @@
 DESTDIR ?= /usr/local
 
+CFLAGS += -O3 -Wall --std=c++11
+CFLAGS += $(foreach n,$(nativeBuildInputs),-I$n/include/nix)
+CFLAGS += $(NIX_CFLAGS_COMPILE)
+
+LDFLAGS += $(foreach f,$(NIX_LDFLAGS),-Wl,$f)
+
 all:
-	g++ -O3 -Wall --std=c++11 -o nix-update-git \
-          $(foreach n,$(nativeBuildInputs),-I$n/include/nix) \
-	  $(NIX_CFLAGS_COMPILE) $(foreach f,$(NIX_LDFLAGS),-Wl,$f) \
-	  nix-update-git.cc \
-	  -lnixmain -lnixexpr
+	g++ -c -o libupdate.o $(CFLAGS) libupdate.cc
+	g++ -o nix-update-git $(CFLAGS) $(LDFLAGS) \
+	  nix-update-git.cc libupdate.o \
+          -lnixmain -lnixexpr
 
 install:
 	mkdir -p $(DESTDIR)/bin
