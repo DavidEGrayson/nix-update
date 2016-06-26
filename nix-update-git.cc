@@ -85,73 +85,78 @@ std::vector<StringReplacement> getStringReplacements(const FetchGitApp & app)
     return r;
 }
 
+int mainWithExceptions(int argc, char ** argv)
+{
+    nix::initNix();
+    nix::initGC();
+
+    // TODO: don't hardcode path
+    std::string path = "/home/david/nixpkgs/pkgs/development/tools/build-managers/lazy/default.nix";
+
+    // Open the .nix file and parse it.
+    nix::Strings searchPath;
+    nix::EvalState state(searchPath);
+    nix::Expr * mainExpr = state.parseExprFromFile(path);
+
+    // Traverse the parsed representation of the file and gather
+    // information about all calls (applications) of fetchgit.
+    std::vector<FetchGitApp> fetchGitApps;
+    ExprVisitorFunction finder([&](nix::Expr * e) {
+        auto result = tryInterpretAsFetchGitApp(e);
+        if (result.second) { fetchGitApps.push_back(result.first); }
+        return true;
+    });
+    ExprDepthFirstSearch(&finder).visit(mainExpr);
+
+    // Get updated info about the upstream repository.  (Requires internet access.)
+    for (FetchGitApp & fga : fetchGitApps)
+    {
+        getLatestGitInfo(fga, state);
+    }
+
+    // Get the info about what replacements need to be made in the file.
+    std::vector<StringReplacement> replacements;
+    for (FetchGitApp & fga : fetchGitApps)
+    {
+        for (const StringReplacement & sr : getStringReplacements(fga))
+        {
+            if (sr.newString != sr.oldString)
+            {
+                replacements.push_back(sr);
+            }
+        }
+    }
+
+    // TODO: write the updated info to the file
+
+    // Print debugging info.
+    if (0)
+    {
+        for (const FetchGitApp & fga : fetchGitApps)
+        {
+            std::cout << fga.app->pos << std::endl;
+            std::cout << *const_cast<nix::ExprApp *>(fga.app) << std::endl;
+            std::cout << fga.urlString << std::endl;
+            std::cout << fga.revString << std::endl;
+            std::cout << fga.hashString << std::endl;
+            std::cout << fga.newRev << std::endl;
+            std::cout << fga.newHash << std::endl;
+        }
+    }
+    if (0)
+    {
+        for (const StringReplacement & sr : replacements)
+        {
+            std::cout << sr.line << ':' << sr.column << ' ' <<          \
+                sr.oldString << '!' << sr.newString << std::endl;
+        }
+    }
+    return 0;
+}
+
 int main(int argc, char ** argv)
 {
     return nix::handleExceptions(argv[0], [&]() {
-        nix::initNix();
-        nix::initGC();
-
-        // TODO: don't hardcode path
-        std::string path = "/home/david/nixpkgs/pkgs/development/tools/build-managers/lazy/default.nix";
-
-        // Open the .nix file and parse it.
-        nix::Strings searchPath;
-        nix::EvalState state(searchPath);
-        nix::Expr * mainExpr = state.parseExprFromFile(path);
-
-        // Traverse the parsed representation of the file and gather
-        // information about all calls (applications) of fetchgit.
-        std::vector<FetchGitApp> fetchGitApps;
-        ExprVisitorFunction finder([&](nix::Expr * e) {
-            auto result = tryInterpretAsFetchGitApp(e);
-            if (result.second) { fetchGitApps.push_back(result.first); }
-            return true;
-        });
-        ExprDepthFirstSearch(&finder).visit(mainExpr);
-
-        // Get updated info about the upstream repository.  (Requires internet access.)
-        for (FetchGitApp & fga : fetchGitApps)
-        {
-            getLatestGitInfo(fga, state);
-        }
-
-        // Get the info about what replacements need to be made in the file.
-        std::vector<StringReplacement> replacements;
-        for (FetchGitApp & fga : fetchGitApps)
-        {
-            for (const StringReplacement & sr : getStringReplacements(fga))
-            {
-                if (sr.newString != sr.oldString)
-                {
-                    replacements.push_back(sr);
-                }
-            }
-        }
-
-        // TODO: write the updated info to the file
-
-        // Print debugging info.
-        if (0)
-        {
-            for (const FetchGitApp & fga : fetchGitApps)
-            {
-                std::cout << fga.app->pos << std::endl;
-                std::cout << *const_cast<nix::ExprApp *>(fga.app) << std::endl;
-                std::cout << fga.urlString << std::endl;
-                std::cout << fga.revString << std::endl;
-                std::cout << fga.hashString << std::endl;
-                std::cout << fga.newRev << std::endl;
-                std::cout << fga.newHash << std::endl;
-            }
-        }
-        if (0)
-        {
-            for (const StringReplacement & sr : replacements)
-            {
-                std::cout << sr.line << ':' << sr.column << ' ' << \
-                    sr.oldString << '!' << sr.newString << std::endl;
-            }
-        }
-        return 0;
+        mainWithExceptions(argc, argv);
     });
 }
