@@ -9,4 +9,4 @@ all:
 
 install:
 	mkdir -p $(DESTDIR)/bin
-	cp update-git $(DESTDIR)/bin
+	cp nix-update-git $(DESTDIR)/bin
