@@ -48,13 +48,14 @@ nix::ExprApp * tryInterpretAsApp(nix::Expr * expr, const std::string & name)
 // The attribute value must be a single non-idented literal string.
 // Returns information about the string attribute as a StringInfo object.
 // Returns true if successful.
-bool findStringAttr(
+std::pair<StringInfo, bool> findStringAttr(
     const nix::ExprApp * app,
-    const std::string & name,
-    StringInfo & info)
+    const std::string & name)
 {
+    auto result = std::pair<StringInfo, bool>(StringInfo(), false);
+
     nix::ExprAttrs * attrs = dynamic_cast<nix::ExprAttrs *>(app->e2);
-    if (attrs == nullptr) { return false; }
+    if (attrs == nullptr) { return result; }
 
     for (auto & symbolAndAttr : attrs->attrs)
     {
@@ -66,13 +67,13 @@ bool findStringAttr(
         if (es == nullptr) { continue; }
         if (es->v.type != nix::ValueType::tString) { continue; }
 
-        info.expr = es;
-        info.pos = symbolAndAttr.second.pos;
-
-        return true;
+        result.first.expr = es;
+        result.first.pos = symbolAndAttr.second.pos;
+        result.second = true;
+        return result;
     }
 
-    return false;
+    return result;
 }
 
 std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
@@ -83,9 +84,17 @@ std::pair<FetchGitApp, bool> tryInterpretAsFetchGitApp(nix::Expr * expr)
     fga.app = tryInterpretAsApp(expr, "fetchgit");
     if (fga.app == nullptr) { return result; }
 
-    if (!findStringAttr(fga.app, "url", fga.urlString)) { return result; }
-    if (!findStringAttr(fga.app, "rev", fga.revString)) { return result; }
-    if (!findStringAttr(fga.app, "sha256", fga.hashString)) { return result; }
+    auto strResult = findStringAttr(fga.app, "url");
+    if (!strResult.second) { return result; }
+    fga.urlString = strResult.first;
+
+    strResult = findStringAttr(fga.app, "rev");
+    if (!strResult.second) { return result; }
+    fga.revString = strResult.first;
+
+    strResult = findStringAttr(fga.app, "sha256");
+    if (!strResult.second) { return result; }
+    fga.hashString = strResult.first;
 
     result.second = true;
     return result;
